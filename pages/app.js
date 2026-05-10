@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+     import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import ReactMarkdown from 'react-markdown';
 import { supabase, getUserAnalyses, FREE_LIMIT } from '../lib/supabase';
@@ -28,14 +28,17 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState('');
-  const [activePersona, setActivePersona] = useState(null);
+  const [activePersonas, setActivePersonas] = useState({});
   const [stockData, setStockData] = useState(null);
-  const [round1, setRound1] = useState(null);
-  const [round2, setRound2] = useState(null);
+  const [round1, setRound1] = useState({});
+  const [round2, setRound2] = useState({});
   const [synthesis, setSynthesis] = useState(null);
   const [vault, setVault] = useState([]);
   const [vaultLoading, setVaultLoading] = useState(false);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
+  const [intentCaptured, setIntentCaptured] = useState(false);
+  const [intent, setIntent] = useState(null);
+  const bottomRef = useRef(null);
 
   const dm = darkMode;
   const bg = dm ? '#0a0a0a' : '#ffffff';
@@ -85,13 +88,17 @@ export default function App() {
       alert('You have used all ' + FREE_LIMIT + ' free analyses. Upgrade to Pro for unlimited access.');
       return;
     }
+
     setLoading(true);
     setStage('Fetching live market data...');
-    setActivePersona(null);
+    setActivePersonas({});
     setStockData(null);
-    setRound1(null);
-    setRound2(null);
+    setRound1({});
+    setRound2({});
     setSynthesis(null);
+    setIntentCaptured(false);
+    setIntent(null);
+
     try {
       const stockRes = await fetch('/api/stockdata', {
         method: 'POST',
@@ -100,40 +107,74 @@ export default function App() {
       });
       const stockJson = await stockRes.json();
       if (stockJson.found) setStockData(stockJson);
-      setStage('Round 1 — Opening arguments...');
-      setActivePersona('bull');
-      await new Promise(r => setTimeout(r, 400));
-      setActivePersona('bear');
-      await new Promise(r => setTimeout(r, 400));
-      setActivePersona('skeptic');
-      await new Promise(r => setTimeout(r, 400));
-      setActivePersona('strategist');
-      const analyzeRes = await fetch('/api/analyze', {
+
+      const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, stockData: stockJson, userId: user.id })
       });
-      const result = await analyzeRes.json();
-      if (result.error === 'limit_reached') {
-        alert(result.message);
-        setLoading(false);
-        setStage('');
-        return;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              const eventLine = lines[lines.indexOf(line) - 1];
+              const event = eventLine?.startsWith('event: ') ? eventLine.slice(7) : null;
+
+              if (event === 'stage') setStage(parsed.stage);
+              if (event === 'persona_start') {
+                setActivePersonas(prev => ({ ...prev, [parsed.id]: parsed.round === 1 ? 'thinking1' : 'thinking2' }));
+              }
+              if (event === 'persona_done') {
+                if (parsed.round === 1) {
+                  setRound1(prev => ({ ...prev, [parsed.id]: parsed.text }));
+                  setActivePersonas(prev => ({ ...prev, [parsed.id]: 'done1' }));
+                } else {
+                  setRound2(prev => ({ ...prev, [parsed.id]: parsed.text }));
+                  setActivePersonas(prev => ({ ...prev, [parsed.id]: 'done2' }));
+                }
+                setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+              }
+              if (event === 'synthesis') {
+                setSynthesis(parsed.synthesis);
+                await fetchProfile(user.id);
+                setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+              }
+              if (event === 'error') {
+                setStage('Error — ' + parsed.message);
+              }
+            } catch {}
+          }
+        }
       }
-      setStage('Round 2 — Direct attacks...');
-      await new Promise(r => setTimeout(r, 300));
-      setRound1(result.round1);
-      setStage('Synthesizing final verdict...');
-      await new Promise(r => setTimeout(r, 300));
-      setRound2(result.round2);
-      setSynthesis(result.synthesis);
-      await fetchProfile(user.id);
     } catch (e) {
       setStage('Error — please try again.');
     }
     setLoading(false);
     setStage('');
-    setActivePersona(null);
+  }
+
+  async function captureIntent(intentValue) {
+    setIntent(intentValue);
+    setIntentCaptured(true);
+    if (user) {
+      await supabase.from('analyses')
+        .update({ intent: intentValue })
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+    }
   }
 
   function openShareCard() {
@@ -143,7 +184,6 @@ export default function App() {
       companyName: stockData?.name || query,
       price: stockData?.price,
       change: stockData?.change,
-      news: stockData?.news,
       verdict: synthesis.verdict,
       confidence: synthesis.confidence,
       timeHorizon: synthesis.timeHorizon,
@@ -168,21 +208,21 @@ export default function App() {
 
   const analysisCount = profile?.analysis_count || 0;
   const tier = profile?.tier || 'free';
-  const remaining = tier === 'free' ? Math.max(0, FREE_LIMIT - analysisCount) : 'unlimited';
+  const remaining = tier === 'free' ? Math.max(0, FREE_LIMIT - analysisCount) : '∞';
   const verdictColor = synthesis?.verdict === 'Bullish' ? '#4ade80' : synthesis?.verdict === 'Bearish' ? '#f87171' : '#94a3b8';
   const verdictBg = synthesis?.verdict === 'Bullish' ? '#052e16' : synthesis?.verdict === 'Bearish' ? '#2d0707' : '#0f172a';
   const verdictBorder = synthesis?.verdict === 'Bullish' ? '#166534' : synthesis?.verdict === 'Bearish' ? '#7f1d1d' : '#1e293b';
 
   return (
-    <div style={{ minHeight: '100vh', background: bg, color: clrText, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', transition: 'all 0.2s' }}>
+    <div style={{ minHeight: '100vh', background: bg, color: clrText, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.25rem 1.5rem' }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid ' + border }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid ' + border, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <h1 onClick={() => router.push('/')} style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer', color: clrText }}>Verdict</h1>
-            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3, overflowX: 'auto', maxWidth: '600px' }}>
+            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3, overflowX: 'auto' }}>
               {tabs.map(t => (
-                <button key={t.id} onClick={() => handleTabClick(t.id)} style={{ padding: '5px 12px', background: tab === t.id && !t.route ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t.id && !t.route ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
+                <button key={t.id} onClick={() => handleTabClick(t.id)} style={{ padding: '5px 10px', background: tab === t.id && !t.route ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t.id && !t.route ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s' }}>
                   {t.label}
                 </button>
               ))}
@@ -215,23 +255,29 @@ export default function App() {
               </button>
             </div>
 
-            {loading && (
-              <div style={{ marginBottom: 28 }}>
-                <div style={{ fontSize: 12, color: textMuted, marginBottom: 16, textAlign: 'center' }}>{stage}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  {Object.entries(personaConfig).map(([id, p]) => (
-                    <div key={id} style={{ background: activePersona === id ? p.bg : surface, border: '1px solid ' + (activePersona === id ? p.border : border), borderRadius: 10, padding: '12px', textAlign: 'center', transition: 'all 0.4s' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: activePersona === id ? p.border : surface2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: activePersona === id ? p.color : textMuted, margin: '0 auto 8px', transition: 'all 0.4s' }}>{p.initials}</div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: activePersona === id ? p.color : textMuted }}>{p.name}</div>
-                      <div style={{ fontSize: 10, color: textFaint, marginTop: 2 }}>{activePersona === id ? 'Analyzing...' : 'Waiting'}</div>
+            {loading && Object.keys(activePersonas).length === 0 && (
+              <div style={{ textAlign: 'center', padding: '2rem', color: textMuted, fontSize: 13 }}>{stage}</div>
+            )}
+
+            {(loading || Object.keys(activePersonas).length > 0) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
+                {Object.entries(personaConfig).map(([id, p]) => {
+                  const state = activePersonas[id];
+                  const isActive = state === 'thinking1' || state === 'thinking2';
+                  const isDone = state === 'done1' || state === 'done2';
+                  return (
+                    <div key={id} style={{ background: isActive || isDone ? p.bg : surface, border: '1px solid ' + (isActive || isDone ? p.border : border), borderRadius: 10, padding: '12px', textAlign: 'center', transition: 'all 0.4s' }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: isActive || isDone ? p.border : surface2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: isActive || isDone ? p.color : textMuted, margin: '0 auto 8px', transition: 'all 0.4s' }}>{p.initials}</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: isActive || isDone ? p.color : textMuted }}>{p.name}</div>
+                      <div style={{ fontSize: 10, color: textFaint, marginTop: 2 }}>{isActive ? 'Analyzing...' : isDone ? 'Done ✓' : 'Waiting'}</div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             )}
 
             {stockData && (
-              <div style={{ background: surface, border: '1px solid ' + border, borderRadius: 14, padding: '1.25rem', marginBottom: 24 }}>
+              <div style={{ background: surface, border: '1px solid ' + border, borderRadius: 14, padding: '1.25rem', marginBottom: 24, animation: 'fadeIn 0.3s ease' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 20, fontWeight: 800, color: clrText }}>{stockData.name}</span>
                   <span style={{ fontSize: 13, color: textMuted, background: surface2, padding: '2px 8px', borderRadius: 6 }}>{stockData.symbol}</span>
@@ -240,7 +286,7 @@ export default function App() {
                     {parseFloat(stockData.change) >= 0 ? '+' : ''}{stockData.change}%
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: stockData.news && stockData.news.length > 0 ? 12 : 0 }}>
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: stockData.news?.length > 0 ? 12 : 0 }}>
                   {[
                     { label: 'Market Cap', value: stockData.marketCap },
                     { label: 'P/E', value: stockData.pe },
@@ -255,7 +301,7 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                {stockData.news && stockData.news.length > 0 && (
+                {stockData.news?.length > 0 && (
                   <div style={{ paddingTop: 12, borderTop: '1px solid ' + border }}>
                     <div style={{ fontSize: 9, color: textFaint, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8 }}>Recent News</div>
                     {stockData.news.slice(0, 3).map((n, i) => (
@@ -266,14 +312,14 @@ export default function App() {
               </div>
             )}
 
-            {round1 && (
-              <div style={{ marginBottom: 24 }}>
+            {Object.keys(round1).length > 0 && (
+              <div style={{ marginBottom: 24, animation: 'fadeIn 0.4s ease' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: textFaint, textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 12 }}>Round 1 — Opening Arguments</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
                   {Object.entries(round1).map(([id, txt]) => {
                     const p = personaConfig[id];
                     return (
-                      <div key={id} style={{ background: p.bg, border: '1px solid ' + p.border, borderRadius: 12, padding: '1rem 1.25rem' }}>
+                      <div key={id} style={{ background: p.bg, border: '1px solid ' + p.border, borderRadius: 12, padding: '1rem 1.25rem', animation: 'fadeIn 0.5s ease' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                           <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, color: p.color }}>{p.initials}</div>
                           <span style={{ fontSize: 12, fontWeight: 700, color: p.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.name}</span>
@@ -286,14 +332,14 @@ export default function App() {
               </div>
             )}
 
-            {round2 && (
-              <div style={{ marginBottom: 24 }}>
+            {Object.keys(round2).length > 0 && (
+              <div style={{ marginBottom: 24, animation: 'fadeIn 0.4s ease' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: textFaint, textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 12 }}>Round 2 — Direct Attacks</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 10 }}>
                   {Object.entries(round2).map(([id, txt]) => {
                     const p = personaConfig[id];
                     return (
-                      <div key={id} style={{ background: surface, border: '1.5px solid ' + p.border, borderRadius: 12, padding: '1rem 1.25rem' }}>
+                      <div key={id} style={{ background: surface, border: '1.5px solid ' + p.border, borderRadius: 12, padding: '1rem 1.25rem', animation: 'fadeIn 0.5s ease' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                           <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.bg, border: '1px solid ' + p.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, color: p.color }}>{p.initials}</div>
                           <span style={{ fontSize: 12, fontWeight: 700, color: p.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.name}</span>
@@ -308,56 +354,89 @@ export default function App() {
             )}
 
             {synthesis && (
-              <div style={{ background: surface, border: '1px solid ' + border, borderRadius: 16, padding: '2rem', marginBottom: 24, position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: verdictColor, opacity: 0.6 }} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: textFaint, textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 20 }}>Final Verdict</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
-                  <div style={{ background: verdictBg, border: '2px solid ' + verdictBorder, borderRadius: 14, padding: '14px 24px' }}>
-                    <div style={{ fontSize: 10, color: verdictColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4, opacity: 0.8 }}>Verdict</div>
-                    <div style={{ fontSize: 32, fontWeight: 900, color: verdictColor, letterSpacing: '-1px', lineHeight: 1 }}>{synthesis.verdict}</div>
+              <div style={{ animation: 'fadeIn 0.5s ease' }}>
+                <div style={{ background: surface, border: '1px solid ' + border, borderRadius: 16, padding: '2rem', marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: verdictColor, opacity: 0.6 }} />
+                  <div style={{ fontSize: 10, fontWeight: 700, color: textFaint, textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 20 }}>Final Verdict</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
+                    <div style={{ background: verdictBg, border: '2px solid ' + verdictBorder, borderRadius: 14, padding: '14px 24px' }}>
+                      <div style={{ fontSize: 10, color: verdictColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4, opacity: 0.8 }}>Verdict</div>
+                      <div style={{ fontSize: 32, fontWeight: 900, color: verdictColor, letterSpacing: '-1px', lineHeight: 1 }}>{synthesis.verdict}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {[
+                        { label: 'Confidence', value: synthesis.confidence + '%' },
+                        { label: 'Time Horizon', value: synthesis.timeHorizon + '-term' }
+                      ].map(c => (
+                        <div key={c.label} style={{ background: surface2, border: '1px solid ' + border, borderRadius: 10, padding: '10px 16px' }}>
+                          <div style={{ fontSize: 9, color: textFaint, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>{c.label}</div>
+                          <div style={{ fontSize: 18, fontWeight: 700, color: clrText }}>{c.value}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 20 }}>
                     {[
-                      { label: 'Confidence', value: synthesis.confidence + '%' },
-                      { label: 'Time Horizon', value: synthesis.timeHorizon + '-term' }
+                      { label: 'Key Risk', value: synthesis.keyRisk, color: '#f87171', bg: '#2d0707', bdr: '#7f1d1d' },
+                      { label: 'Key Opportunity', value: synthesis.keyOpportunity, color: '#4ade80', bg: '#052e16', bdr: '#166534' },
+                      { label: 'Core Disagreement', value: synthesis.coreDisagreement, color: '#a78bfa', bg: '#1a0d2e', bdr: '#4c1d95' }
                     ].map(c => (
-                      <div key={c.label} style={{ background: surface2, border: '1px solid ' + border, borderRadius: 10, padding: '10px 16px' }}>
-                        <div style={{ fontSize: 9, color: textFaint, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>{c.label}</div>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: clrText }}>{c.value}</div>
+                      <div key={c.label} style={{ background: c.bg, border: '1px solid ' + c.bdr, borderRadius: 10, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 9, color: c.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6, opacity: 0.8 }}>{c.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: c.color, lineHeight: 1.4 }}>{c.value}</div>
                       </div>
                     ))}
                   </div>
+                  <div style={{ background: surface2, border: '1px solid ' + border, borderRadius: 10, padding: '1rem', marginBottom: 16 }}>
+                    <p style={{ fontSize: 14, lineHeight: 1.8, color: textMuted, margin: 0, fontStyle: 'italic' }}>{synthesis.summary}</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#a78bfa', background: '#1a0d2e', border: '1px solid #4c1d95', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Vault</button>
+                    <button onClick={openShareCard} style={{ fontSize: 12, color: '#4ade80', background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Share Card</button>
+                    <button onClick={() => router.push('/premortem')} style={{ fontSize: 12, color: '#f87171', background: '#2d0707', border: '1px solid #7f1d1d', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Pre-Mortem</button>
+                    <button onClick={() => router.push('/watchlist')} style={{ fontSize: 12, color: '#fbbf24', background: '#1c1000', border: '1px solid #78350f', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Watch</button>
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 20 }}>
-                  {[
-                    { label: 'Key Risk', value: synthesis.keyRisk, color: '#f87171', bg: '#2d0707', bdr: '#7f1d1d' },
-                    { label: 'Key Opportunity', value: synthesis.keyOpportunity, color: '#4ade80', bg: '#052e16', bdr: '#166534' },
-                    { label: 'Core Disagreement', value: synthesis.coreDisagreement, color: '#a78bfa', bg: '#1a0d2e', bdr: '#4c1d95' }
-                  ].map(c => (
-                    <div key={c.label} style={{ background: c.bg, border: '1px solid ' + c.bdr, borderRadius: 10, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 9, color: c.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6, opacity: 0.8 }}>{c.label}</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: c.color, lineHeight: 1.4 }}>{c.value}</div>
+
+                {!intentCaptured && (
+                  <div style={{ background: '#0d0d1f', border: '2px solid #4c1d95', borderRadius: 14, padding: '1.5rem', marginBottom: 24, animation: 'fadeIn 0.6s ease' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', marginBottom: 6 }}>One question before you move on.</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: clrText, marginBottom: 16, lineHeight: 1.4 }}>Are you going to act on this verdict?</div>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {[
+                        { value: 'yes', label: 'Yes — I\'m acting on it', color: '#4ade80', bg: '#052e16', bdr: '#166534' },
+                        { value: 'no', label: 'No — I\'m passing', color: '#f87171', bg: '#2d0707', bdr: '#7f1d1d' },
+                        { value: 'maybe', label: 'Still deciding', color: '#fbbf24', bg: '#1c1000', bdr: '#78350f' }
+                      ].map(btn => (
+                        <button key={btn.value} onClick={() => captureIntent(btn.value)} style={{ padding: '10px 20px', background: btn.bg, color: btn.color, border: '1px solid ' + btn.bdr, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+                          {btn.label}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                <div style={{ background: surface2, border: '1px solid ' + border, borderRadius: 10, padding: '1rem', marginBottom: 16 }}>
-                  <p style={{ fontSize: 14, lineHeight: 1.8, color: textMuted, margin: 0, fontStyle: 'italic' }}>{synthesis.summary}</p>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#a78bfa', background: '#1a0d2e', border: '1px solid #4c1d95', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Vault</button>
-                  <button onClick={openShareCard} style={{ fontSize: 12, color: '#4ade80', background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Share Card</button>
-                  <button onClick={() => router.push('/premortem')} style={{ fontSize: 12, color: '#f87171', background: '#2d0707', border: '1px solid #7f1d1d', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Pre-Mortem</button>
-                </div>
+                    <div style={{ fontSize: 11, color: textFaint, marginTop: 10 }}>This helps build your Cognitive Map — how you actually make decisions vs how you think you do.</div>
+                  </div>
+                )}
+
+                {intentCaptured && (
+                  <div style={{ background: surface, border: '1px solid ' + border, borderRadius: 10, padding: '12px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10, animation: 'fadeIn 0.3s ease' }}>
+                    <span style={{ fontSize: 16 }}>{intent === 'yes' ? '✓' : intent === 'no' ? '✗' : '~'}</span>
+                    <span style={{ fontSize: 13, color: textMuted }}>
+                      {intent === 'yes' ? 'Recorded. This adds to your Cognitive Map.' : intent === 'no' ? 'Recorded. Passing on this one.' : 'Recorded. We\'ll check back on this.'}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
-            {!round1 && !loading && (
+            {!Object.keys(round1).length && !loading && (
               <div style={{ textAlign: 'center', padding: '5rem 2rem' }}>
                 <div style={{ fontSize: 52, marginBottom: 16 }}>⚔️</div>
                 <div style={{ fontSize: 16, color: textMuted, fontWeight: 500, marginBottom: 8 }}>Enter any stock or market idea to start the debate</div>
                 <div style={{ fontSize: 13, color: textFaint }}>Try: NVIDIA · Apple · Bitcoin · Solar energy</div>
               </div>
             )}
+
+            <div ref={bottomRef} />
           </div>
         )}
 
@@ -394,6 +473,11 @@ export default function App() {
                         {a.price_at_analysis && <div style={{ fontSize: 13, color: textMuted }}>${a.price_at_analysis}</div>}
                         <div style={{ background: vBg, color: vColor, border: '1px solid ' + vBdr, fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6 }}>{a.verdict}</div>
                         <div style={{ fontSize: 11, color: textMuted }}>{a.confidence}%</div>
+                        {a.return_30d !== null && a.return_30d !== undefined && (
+                          <div style={{ fontSize: 12, fontWeight: 600, color: a.return_30d > 0 ? '#4ade80' : '#f87171' }}>
+                            {a.return_30d > 0 ? '+' : ''}{a.return_30d}% 30d
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -442,6 +526,7 @@ export default function App() {
 
       </div>
       <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
         * { box-sizing: border-box; }
         p { margin: 0 0 8px; }
