@@ -33,10 +33,50 @@ const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-5';
 
 const personas = [
-  { id: 'bull', name: 'The Bull', role: `You are an elite equity research analyst making the strongest possible bull case. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: growth catalysts, moats, valuation upside, tailwinds.` },
-  { id: 'bear', name: 'The Bear', role: `You are an elite short-seller making the strongest possible bear case. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: weaknesses, threats, valuation risk, downside catalysts.` },
-  { id: 'skeptic', name: 'The Skeptic', role: `You are a forensic analyst who questions every assumption. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: misleading numbers, hidden risks, wrong assumptions.` },
-  { id: 'strategist', name: 'The Strategist', role: `You are a McKinsey senior partner focused on competitive strategy. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: positioning, strategic optionality, industry structure, winning moves.` }
+  {
+    id: 'bull',
+    name: 'The Bull',
+    role: `You are an elite equity research analyst making the strongest possible bull case.
+STRICT RULES:
+- Maximum 4 sentences. Hard limit. Stop after 4 sentences.
+- No headers, no bullet points, no labels like "BULL CASE:"
+- Pure flowing prose only
+- Use specific numbers from the live data provided
+- Focus on: growth catalysts, competitive moats, valuation upside, tailwinds`
+  },
+  {
+    id: 'bear',
+    name: 'The Bear',
+    role: `You are an elite short-seller making the strongest possible bear case.
+STRICT RULES:
+- Maximum 4 sentences. Hard limit. Stop after 4 sentences.
+- No headers, no bullet points, no labels like "BEAR CASE:"
+- Pure flowing prose only
+- Use specific numbers from the live data provided
+- Focus on: structural weaknesses, competitive threats, valuation risk, downside catalysts`
+  },
+  {
+    id: 'skeptic',
+    name: 'The Skeptic',
+    role: `You are a forensic analyst who questions every assumption.
+STRICT RULES:
+- Maximum 4 sentences. Hard limit. Stop after 4 sentences.
+- No headers, no bullet points, no labels like "SKEPTIC:"
+- Pure flowing prose only
+- Use specific numbers from the live data provided
+- Focus on: misleading numbers, hidden risks, assumptions that could be wrong`
+  },
+  {
+    id: 'strategist',
+    name: 'The Strategist',
+    role: `You are a McKinsey senior partner focused purely on competitive strategy.
+STRICT RULES:
+- Maximum 4 sentences. Hard limit. Stop after 4 sentences.
+- No headers, no bullet points, no labels like "STRATEGIST:"
+- Pure flowing prose only
+- Use specific numbers from the live data provided
+- Focus on: competitive positioning, strategic optionality, industry structure, winning moves`
+  }
 ];
 
 async function callClaude(systemPrompt, userMessage) {
@@ -60,7 +100,7 @@ async function callClaude(systemPrompt, userMessage) {
 
 function buildDataContext(stockData) {
   if (!stockData?.found) return 'No live financial data available. Analyze based on general knowledge.';
-  
+
   const marketData = `LIVE MARKET DATA:
 Company: ${stockData.name} (${stockData.symbol})
 Price: $${stockData.price} | Change: ${stockData.change}%
@@ -74,10 +114,6 @@ ${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('
   const edgarData = stockData.edgarContext ? `\n${stockData.edgarContext}` : '';
 
   return marketData + edgarData;
-}
-
-RECENT NEWS:
-${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('\n') : 'No recent news available'}`;
 }
 
 export default async function handler(req, res) {
@@ -107,7 +143,13 @@ export default async function handler(req, res) {
   const round2 = {};
 
   for (const persona of personas) {
-    const attackRole = persona.role + `\n\nIMPORTANT: You have heard the other analysts. Directly attack the weakest argument made by another analyst. Name which argument you are attacking. Be surgical. Use live data. Maximum 3 sentences.`;
+    const attackRole = persona.role + `\n\nROUND 2 RULES:
+- Maximum 3 sentences. Hard limit.
+- Start by naming exactly which analyst you are attacking and which specific claim
+- No headers, no labels, no "ROUND 2:" prefix
+- Pure prose only
+- Be surgical — one specific claim, destroyed with evidence`;
+
     const userMsg = `${dataContext}\n\nSubject: ${query}\n\nRound 1 arguments:\n${round1Summary}\n\nMake your Round 2 counter-argument.`;
     round2[persona.id] = await callClaude(attackRole, userMsg);
   }
@@ -124,7 +166,15 @@ export default async function handler(req, res) {
   try {
     synthesis = JSON.parse(synthRaw.replace(/```json|```/g, '').trim());
   } catch {
-    synthesis = { verdict: 'Neutral', confidence: 50, timeHorizon: 'medium', keyRisk: 'See summary', keyOpportunity: 'See summary', coreDisagreement: 'Unable to determine', summary: synthRaw };
+    synthesis = {
+      verdict: 'Neutral',
+      confidence: 50,
+      timeHorizon: 'medium',
+      keyRisk: 'See summary',
+      keyOpportunity: 'See summary',
+      coreDisagreement: 'Unable to determine',
+      summary: synthRaw
+    };
   }
 
   await incrementAnalysisCount(userId);
@@ -146,5 +196,10 @@ export default async function handler(req, res) {
     stock_data: stockData || null
   });
 
-  return res.status(200).json({ round1, round2, synthesis, stockData: stockData?.found ? stockData : null });
+  return res.status(200).json({
+    round1,
+    round2,
+    synthesis,
+    stockData: stockData?.found ? stockData : null
+  });
 }
