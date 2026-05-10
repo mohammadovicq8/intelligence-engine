@@ -1,3 +1,5 @@
+import { supabaseAdmin, getUserProfile, incrementAnalysisCount, saveAnalysis, canRunAnalysis } from '../../lib/supabase';
+
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-5';
 
@@ -5,34 +7,22 @@ const personas = [
   {
     id: 'bull',
     name: 'The Bull',
-    role: `You are an elite equity research analyst at a top-tier investment bank making the strongest possible bull case. 
-You have access to live market data provided to you. Use specific numbers from the data in your argument.
-Be direct, sharp, and specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose.
-Focus on: growth catalysts, competitive moats, valuation upside, and market tailwinds.`
+    role: `You are an elite equity research analyst at a top-tier investment bank making the strongest possible bull case. You have access to live market data. Use specific numbers from the data. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: growth catalysts, competitive moats, valuation upside, market tailwinds.`
   },
   {
     id: 'bear',
     name: 'The Bear',
-    role: `You are an elite short-seller and risk analyst making the strongest possible bear case.
-You have access to live market data provided to you. Use specific numbers from the data in your argument.
-Be direct, sharp, and specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose.
-Focus on: structural weaknesses, competitive threats, valuation risk, and downside catalysts.`
+    role: `You are an elite short-seller and risk analyst making the strongest possible bear case. You have access to live market data. Use specific numbers from the data. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: structural weaknesses, competitive threats, valuation risk, downside catalysts.`
   },
   {
     id: 'skeptic',
     name: 'The Skeptic',
-    role: `You are a forensic financial analyst who questions every assumption.
-You have access to live market data provided to you. Use specific numbers from the data in your argument.
-Be direct, sharp, and specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose.
-Focus on: what numbers are misleading, what risks are hidden, what assumptions could be wrong.`
+    role: `You are a forensic financial analyst who questions every assumption. You have access to live market data. Use specific numbers. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: misleading numbers, hidden risks, wrong assumptions.`
   },
   {
     id: 'strategist',
     name: 'The Strategist',
-    role: `You are a McKinsey senior partner focused purely on competitive strategy and 3-year trajectory.
-You have access to live market data provided to you. Use specific numbers from the data in your argument.
-Be direct, sharp, and specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose.
-Focus on: competitive positioning, strategic optionality, industry structure, and winning moves.`
+    role: `You are a McKinsey senior partner focused on competitive strategy and 3-year trajectory. You have access to live market data. Use specific numbers. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: competitive positioning, strategic optionality, industry structure, winning moves.`
   }
 ];
 
@@ -46,7 +36,7 @@ async function callClaude(systemPrompt, userMessage) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1000,
+      max_tokens: 600,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }]
     })
@@ -57,7 +47,6 @@ async function callClaude(systemPrompt, userMessage) {
 
 function buildDataContext(stockData) {
   if (!stockData?.found) return 'No live financial data available. Analyze based on general knowledge.';
-  
   return `LIVE MARKET DATA:
 Company: ${stockData.name} (${stockData.symbol})
 Price: $${stockData.price} | Change: ${stockData.change}%
@@ -72,7 +61,18 @@ ${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { query, stockData } = req.body;
+  const { query, stockData, userId } = req.body;
+
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const allowed = await canRunAnalysis(userId);
+  if (!allowed) {
+    return res.status(403).json({ 
+      error: 'limit_reached',
+      message: 'You have used all your free analyses. Upgrade to Pro for unlimited access.'
+    });
+  }
+
   const dataContext = buildDataContext(stockData);
 
   const round1 = {};
@@ -81,59 +81,48 @@ export default async function handler(req, res) {
     round1[persona.id] = await callClaude(persona.role, userMsg);
   }
 
-  const round1Summary = personas.map(p => 
-    `${p.name}: ${round1[p.id]}`
-  ).join('\n\n');
+  const round1Summary = personas.map(p => `${p.name}: ${round1[p.id]}`).join('\n\n');
 
   const round2 = {};
   for (const persona of personas) {
-    const attackRole = persona.role + `\n\nIMPORTANT: You have now heard the other analysts. 
-Directly attack the weakest argument made by another analyst. 
-Name which argument you are attacking. Be surgical and specific.
-Use the live data to support your counter-argument. Maximum 3 sentences.`;
-    
+    const attackRole = persona.role + `\n\nIMPORTANT: You have now heard the other analysts. Directly attack the weakest argument made by another analyst. Name which argument you are attacking. Be surgical and specific. Use live data to support your counter-argument. Maximum 3 sentences.`;
     const userMsg = `${dataContext}\n\nSubject: ${query}\n\nRound 1 arguments:\n${round1Summary}\n\nNow make your Round 2 counter-argument.`;
     round2[persona.id] = await callClaude(attackRole, userMsg);
   }
 
-  const round2Summary = personas.map(p => 
-    `${p.name}: ${round2[p.id]}`
-  ).join('\n\n');
+  const round2Summary = personas.map(p => `${p.name}: ${round2[p.id]}`).join('\n\n');
 
-  const synthPrompt = `You are a chief investment officer synthesizing a three-round analyst debate.
-Respond ONLY with a valid JSON object, no markdown fences, no extra text:
-{
-  "verdict": "Bullish" or "Bearish" or "Neutral",
-  "confidence": number between 1-100,
-  "timeHorizon": "short" or "medium" or "long",
-  "keyRisk": "single biggest risk in 8 words max",
-  "keyOpportunity": "single biggest opportunity in 8 words max",
-  "coreDisagreement": "the exact point bulls and bears disagree on most in 10 words max",
-  "summary": "3 sharp sentences synthesizing all arguments into a final investment position"
-}`;
+  const synthPrompt = `You are a chief investment officer synthesizing a debate. Respond ONLY with valid JSON, no markdown:
+{"verdict":"Bullish or Bearish or Neutral","confidence":number 1-100,"timeHorizon":"short or medium or long","keyRisk":"max 8 words","keyOpportunity":"max 8 words","coreDisagreement":"max 10 words","summary":"3 sharp sentences synthesizing all arguments"}`;
 
-  const synthMsg = `Subject: ${query}\n\n${dataContext}\n\nRound 1:\n${round1Summary}\n\nRound 2:\n${round2Summary}\n\nSynthesize into a final verdict.`;
+  const synthMsg = `Subject: ${query}\n\n${dataContext}\n\nRound 1:\n${round1Summary}\n\nRound 2:\n${round2Summary}\n\nSynthesize.`;
   const synthRaw = await callClaude(synthPrompt, synthMsg);
 
   let synthesis;
   try {
     synthesis = JSON.parse(synthRaw.replace(/```json|```/g, '').trim());
   } catch {
-    synthesis = {
-      verdict: 'Neutral',
-      confidence: 50,
-      timeHorizon: 'medium',
-      keyRisk: 'Insufficient data',
-      keyOpportunity: 'Further research needed',
-      coreDisagreement: 'Unable to determine',
-      summary: synthRaw
-    };
+    synthesis = { verdict: 'Neutral', confidence: 50, timeHorizon: 'medium', keyRisk: 'See summary', keyOpportunity: 'See summary', coreDisagreement: 'Unable to determine', summary: synthRaw };
   }
 
-  return res.status(200).json({
+  await incrementAnalysisCount(userId);
+
+  await saveAnalysis(userId, {
+    query,
+    symbol: stockData?.symbol || null,
+    company_name: stockData?.name || query,
+    price_at_analysis: stockData?.price ? parseFloat(stockData.price) : null,
+    verdict: synthesis.verdict,
+    confidence: synthesis.confidence,
+    time_horizon: synthesis.timeHorizon,
+    key_risk: synthesis.keyRisk,
+    key_opportunity: synthesis.keyOpportunity,
+    core_disagreement: synthesis.coreDisagreement,
+    summary: synthesis.summary,
     round1,
     round2,
-    synthesis,
-    stockData: stockData?.found ? stockData : null
+    stock_data: stockData || null
   });
+
+  return res.status(200).json({ round1, round2, synthesis, stockData: stockData?.found ? stockData : null });
 }
