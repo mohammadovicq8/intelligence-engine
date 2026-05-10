@@ -60,12 +60,21 @@ async function callClaude(systemPrompt, userMessage) {
 
 function buildDataContext(stockData) {
   if (!stockData?.found) return 'No live financial data available. Analyze based on general knowledge.';
-  return `LIVE MARKET DATA:
+  
+  const marketData = `LIVE MARKET DATA:
 Company: ${stockData.name} (${stockData.symbol})
 Price: $${stockData.price} | Change: ${stockData.change}%
 Market Cap: ${stockData.marketCap} | P/E Ratio: ${stockData.pe}
 52-Week Range: $${stockData.week52Low} - $${stockData.week52High}
 Revenue: ${stockData.revenue} | EPS: $${stockData.eps}
+
+RECENT NEWS:
+${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('\n') : 'No recent news available'}`;
+
+  const edgarData = stockData.edgarContext ? `\n${stockData.edgarContext}` : '';
+
+  return marketData + edgarData;
+}
 
 RECENT NEWS:
 ${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('\n') : 'No recent news available'}`;
