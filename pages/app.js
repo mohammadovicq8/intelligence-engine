@@ -166,11 +166,11 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <h1 onClick={() => router.push('/')} style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer', color: clrText }}>Verdict</h1>
             <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3 }}>
-              {['warroom', 'vault'].map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{ padding: '6px 14px', background: tab === t ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
-                  {t === 'warroom' ? 'War Room' : 'Vault'}
-                </button>
-              ))}
+              {['warroom', 'vault', 'scorecard'].map(t => (
+  <button key={t} onClick={() => t === 'scorecard' ? router.push('/scorecard') : setTab(t)} style={{ padding: '6px 14px', background: tab === t ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
+    {t === 'warroom' ? 'War Room' : t === 'vault' ? 'Vault' : 'Scorecard'}
+  </button>
+))}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
