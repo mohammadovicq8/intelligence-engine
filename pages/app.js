@@ -10,6 +10,15 @@ const personaConfig = {
   strategist: { name: 'The Strategist', initials: 'ST', color: '#a78bfa', bg: '#1a0d2e', border: '#4c1d95' }
 };
 
+const tabs = [
+  { id: 'warroom', label: 'War Room', route: null },
+  { id: 'vault', label: 'Vault', route: null },
+  { id: 'scorecard', label: 'Scorecard', route: '/scorecard' },
+  { id: 'pulse', label: 'Pulse', route: '/pulse' },
+  { id: 'premortem', label: 'Pre-Mortem', route: '/premortem' },
+  { id: 'watchlist', label: 'Watch', route: '/watchlist' }
+];
+
 export default function App() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -73,7 +82,7 @@ export default function App() {
     const analysisCount = profile?.analysis_count || 0;
     const tier = profile?.tier || 'free';
     if (tier === 'free' && analysisCount >= FREE_LIMIT) {
-      alert(`You've used all ${FREE_LIMIT} free analyses. Upgrade to Pro for unlimited access.`);
+      alert('You have used all ' + FREE_LIMIT + ' free analyses. Upgrade to Pro for unlimited access.');
       return;
     }
     setLoading(true);
@@ -151,6 +160,12 @@ export default function App() {
     router.push('/');
   }
 
+  function handleTabClick(t) {
+    const found = tabs.find(x => x.id === t);
+    if (found?.route) { router.push(found.route); return; }
+    setTab(t);
+  }
+
   const analysisCount = profile?.analysis_count || 0;
   const tier = profile?.tier || 'free';
   const remaining = tier === 'free' ? Math.max(0, FREE_LIMIT - analysisCount) : 'unlimited';
@@ -163,18 +178,18 @@ export default function App() {
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '1.25rem 1.5rem' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid ' + border }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <h1 onClick={() => router.push('/')} style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer', color: clrText }}>Verdict</h1>
-            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3 }}>
-              {['warroom', 'vault', 'scorecard', 'pulse', 'premortem'].map(t => (
-  <button key={t} onClick={() => t === 'scorecard' ? router.push('/scorecard') : t === 'pulse' ? router.push('/pulse') : t === 'premortem' ? router.push('/premortem') : setTab(t)} style={{ padding: '6px 14px', background: tab === t ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
-    {t === 'warroom' ? 'War Room' : t === 'vault' ? 'Vault' : t === 'scorecard' ? 'Scorecard' : t === 'pulse' ? '⚡ Pulse' : '💀 Pre-Mortem'}
-  </button>
-))}
+            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3, flexWrap: 'wrap' }}>
+              {tabs.map(t => (
+                <button key={t.id} onClick={() => handleTabClick(t.id)} style={{ padding: '5px 12px', background: tab === t.id && !t.route ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t.id && !t.route ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
+                  {t.label}
+                </button>
+              ))}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => setDarkMode(!dm)} style={{ width: 32, height: 32, borderRadius: '50%', background: surface2, border: '1px solid ' + border, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setDarkMode(!dm)} style={{ width: 30, height: 30, borderRadius: '50%', background: surface2, border: '1px solid ' + border, cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {dm ? '☀️' : '🌙'}
             </button>
             <div style={{ fontSize: 11, color: textMuted, background: surface2, padding: '4px 10px', borderRadius: 20, border: '1px solid ' + border }}>
@@ -282,7 +297,7 @@ export default function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                           <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.bg, border: '1px solid ' + p.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, color: p.color }}>{p.initials}</div>
                           <span style={{ fontSize: 12, fontWeight: 700, color: p.color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.name}</span>
-                          <span style={{ fontSize: 9, color: textFaint, marginLeft: 'auto', letterSpacing: '0.5px' }}>ATTACKING</span>
+                          <span style={{ fontSize: 9, color: textFaint, marginLeft: 'auto' }}>ATTACKING</span>
                         </div>
                         <div style={{ fontSize: 13, lineHeight: 1.75, color: textMuted }}><ReactMarkdown>{txt}</ReactMarkdown></div>
                       </div>
@@ -329,12 +344,9 @@ export default function App() {
                   <p style={{ fontSize: 14, lineHeight: 1.8, color: textMuted, margin: 0, fontStyle: 'italic' }}>{synthesis.summary}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#a78bfa', background: '#1a0d2e', border: '1px solid #4c1d95', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>
-                    Vault
-                  </button>
-                  <button onClick={openShareCard} style={{ fontSize: 12, color: '#4ade80', background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>
-                    Share Card
-                  </button>
+                  <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#a78bfa', background: '#1a0d2e', border: '1px solid #4c1d95', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Vault</button>
+                  <button onClick={openShareCard} style={{ fontSize: 12, color: '#4ade80', background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Share Card</button>
+                  <button onClick={() => router.push('/premortem')} style={{ fontSize: 12, color: '#f87171', background: '#2d0707', border: '1px solid #7f1d1d', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 600 }}>Pre-Mortem</button>
                 </div>
               </div>
             )}
@@ -355,9 +367,7 @@ export default function App() {
               <h2 style={{ fontSize: 20, fontWeight: 800, margin: '0 0 4px', color: clrText, letterSpacing: '-0.5px' }}>Thesis Vault</h2>
               <p style={{ fontSize: 13, color: textMuted, margin: 0 }}>Your permanent research library.</p>
             </div>
-
             {vaultLoading && <div style={{ textAlign: 'center', padding: '3rem', color: textMuted }}>Loading...</div>}
-
             {!vaultLoading && vault.length === 0 && (
               <div style={{ textAlign: 'center', padding: '5rem', color: textFaint }}>
                 <div style={{ fontSize: 52, marginBottom: 16 }}>🗄️</div>
@@ -365,7 +375,6 @@ export default function App() {
                 <button onClick={() => setTab('warroom')} style={{ padding: '10px 24px', background: dm ? '#fff' : '#1a1a1a', color: dm ? '#000' : '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Go to War Room</button>
               </div>
             )}
-
             {!vaultLoading && vault.length > 0 && !selectedAnalysis && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {vault.map(a => {
@@ -391,7 +400,6 @@ export default function App() {
                 })}
               </div>
             )}
-
             {selectedAnalysis && (
               <div>
                 <button onClick={() => setSelectedAnalysis(null)} style={{ fontSize: 13, color: textMuted, background: 'none', border: 'none', cursor: 'pointer', marginBottom: 20, padding: 0 }}>← Back</button>
