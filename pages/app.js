@@ -116,6 +116,25 @@ export default function App() {
     setStage('');
   }
 
+  function openShareCard() {
+    const cardData = {
+      query,
+      symbol: stockData?.symbol,
+      companyName: stockData?.name || query,
+      price: stockData?.price,
+      change: stockData?.change,
+      news: stockData?.news,
+      verdict: synthesis.verdict,
+      confidence: synthesis.confidence,
+      timeHorizon: synthesis.timeHorizon,
+      keyRisk: synthesis.keyRisk,
+      keyOpportunity: synthesis.keyOpportunity,
+      coreDisagreement: synthesis.coreDisagreement,
+      summary: synthesis.summary
+    };
+    window.open(`/card?data=${encodeURIComponent(JSON.stringify(cardData))}`, '_blank');
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     router.push('/');
@@ -132,9 +151,7 @@ export default function App() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer' }} onClick={() => router.push('/')}>Verdict</h1>
-          </div>
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer' }} onClick={() => router.push('/')}>Verdict</h1>
           <div style={{ display: 'flex', gap: 4 }}>
             {['warroom', 'vault'].map(t => (
               <button key={t} onClick={() => setTab(t)} style={{ padding: '6px 14px', background: tab === t ? '#1a1a1a' : 'transparent', color: tab === t ? '#fff' : '#888', border: tab === t ? 'none' : '1px solid #eee', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
@@ -284,33 +301,15 @@ export default function App() {
               </div>
               <p style={{ fontSize: 14, lineHeight: 1.8, color: '#333', margin: 0, padding: '14px 0 0', borderTop: '1px solid #eee' }}>{synthesis.summary}</p>
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #eee', display: 'flex', gap: 8 }}>
-  <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#534AB7', background: '#EEEDFE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
-    🗄️ View in Vault →
-  </button>
-  <button
-    onClick={() => {
-      const cardData = {
-        query,
-        symbol: stockData?.symbol,
-        companyName: stockData?.name || query,
-        price: stockData?.price,
-        change: stockData?.change,
-        news: stockData?.news,
-        verdict: synthesis.verdict,
-        confidence: synthesis.confidence,
-        timeHorizon: synthesis.timeHorizon,
-        keyRisk: synthesis.keyRisk,
-        keyOpportunity: synthesis.keyOpportunity,
-        coreDisagreement: synthesis.coreDisagreement,
-        summary: synthesis.summary
-      };
-      window.open(`/card?data=${encodeURIComponent(JSON.stringify(cardData))}`, '_blank');
-    }}
-    style={{ fontSize: 12, color: '#3B6D11', background: '#EAF3DE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}
-  >
-    🎴 Share Card →
-  </button>
-</div>
+                <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#534AB7', background: '#EEEDFE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
+                  🗄️ View in Vault →
+                </button>
+                <button onClick={openShareCard} style={{ fontSize: 12, color: '#3B6D11', background: '#EAF3DE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
+                  🎴 Share Card →
+                </button>
+              </div>
+            </div>
+          )}
 
           {!round1 && !loading && (
             <div style={{ textAlign: 'center', padding: '4rem 2rem', color: '#ccc' }}>
@@ -346,7 +345,8 @@ export default function App() {
                 const verdColor = a.verdict === 'Bullish' ? '#3B6D11' : a.verdict === 'Bearish' ? '#A32D2D' : '#5F5E5A';
                 const verdBg = a.verdict === 'Bullish' ? '#EAF3DE' : a.verdict === 'Bearish' ? '#FCEBEB' : '#F1EFE8';
                 return (
-                  <div key={a.id} onClick={() => setSelectedAnalysis(a)} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '1rem 1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
+                  <div key={a.id} onClick={() => setSelectedAnalysis(a)}
+                    style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '1rem 1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = '#ddd'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = '#eee'}>
                     <div style={{ flex: 1, minWidth: 200 }}>
