@@ -30,32 +30,13 @@ async function saveAnalysis(userId, analysisData) {
 }
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
-// ... rest of file unchanged
-
-const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-5';
 
 const personas = [
-  {
-    id: 'bull',
-    name: 'The Bull',
-    role: `You are an elite equity research analyst at a top-tier investment bank making the strongest possible bull case. You have access to live market data. Use specific numbers from the data. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: growth catalysts, competitive moats, valuation upside, market tailwinds.`
-  },
-  {
-    id: 'bear',
-    name: 'The Bear',
-    role: `You are an elite short-seller and risk analyst making the strongest possible bear case. You have access to live market data. Use specific numbers from the data. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: structural weaknesses, competitive threats, valuation risk, downside catalysts.`
-  },
-  {
-    id: 'skeptic',
-    name: 'The Skeptic',
-    role: `You are a forensic financial analyst who questions every assumption. You have access to live market data. Use specific numbers. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: misleading numbers, hidden risks, wrong assumptions.`
-  },
-  {
-    id: 'strategist',
-    name: 'The Strategist',
-    role: `You are a McKinsey senior partner focused on competitive strategy and 3-year trajectory. You have access to live market data. Use specific numbers. Be direct, sharp, specific. Maximum 4 sentences. No headers. No bullet points. Pure analytical prose. Focus on: competitive positioning, strategic optionality, industry structure, winning moves.`
-  }
+  { id: 'bull', name: 'The Bull', role: `You are an elite equity research analyst making the strongest possible bull case. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: growth catalysts, moats, valuation upside, tailwinds.` },
+  { id: 'bear', name: 'The Bear', role: `You are an elite short-seller making the strongest possible bear case. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: weaknesses, threats, valuation risk, downside catalysts.` },
+  { id: 'skeptic', name: 'The Skeptic', role: `You are a forensic analyst who questions every assumption. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: misleading numbers, hidden risks, wrong assumptions.` },
+  { id: 'strategist', name: 'The Strategist', role: `You are a McKinsey senior partner focused on competitive strategy. Use live market data provided. Use specific numbers. Maximum 4 sentences. No headers. No bullets. Pure prose. Focus on: positioning, strategic optionality, industry structure, winning moves.` }
 ];
 
 async function callClaude(systemPrompt, userMessage) {
@@ -99,33 +80,33 @@ export default async function handler(req, res) {
 
   const allowed = await canRunAnalysis(userId);
   if (!allowed) {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'limit_reached',
       message: 'You have used all your free analyses. Upgrade to Pro for unlimited access.'
     });
   }
 
   const dataContext = buildDataContext(stockData);
-
   const round1 = {};
+
   for (const persona of personas) {
     const userMsg = `${dataContext}\n\nAnalyze: ${query}\n\nMake your opening case.`;
     round1[persona.id] = await callClaude(persona.role, userMsg);
   }
 
   const round1Summary = personas.map(p => `${p.name}: ${round1[p.id]}`).join('\n\n');
-
   const round2 = {};
+
   for (const persona of personas) {
-    const attackRole = persona.role + `\n\nIMPORTANT: You have now heard the other analysts. Directly attack the weakest argument made by another analyst. Name which argument you are attacking. Be surgical and specific. Use live data to support your counter-argument. Maximum 3 sentences.`;
-    const userMsg = `${dataContext}\n\nSubject: ${query}\n\nRound 1 arguments:\n${round1Summary}\n\nNow make your Round 2 counter-argument.`;
+    const attackRole = persona.role + `\n\nIMPORTANT: You have heard the other analysts. Directly attack the weakest argument made by another analyst. Name which argument you are attacking. Be surgical. Use live data. Maximum 3 sentences.`;
+    const userMsg = `${dataContext}\n\nSubject: ${query}\n\nRound 1 arguments:\n${round1Summary}\n\nMake your Round 2 counter-argument.`;
     round2[persona.id] = await callClaude(attackRole, userMsg);
   }
 
   const round2Summary = personas.map(p => `${p.name}: ${round2[p.id]}`).join('\n\n');
 
-  const synthPrompt = `You are a chief investment officer synthesizing a debate. Respond ONLY with valid JSON, no markdown:
-{"verdict":"Bullish or Bearish or Neutral","confidence":number 1-100,"timeHorizon":"short or medium or long","keyRisk":"max 8 words","keyOpportunity":"max 8 words","coreDisagreement":"max 10 words","summary":"3 sharp sentences synthesizing all arguments"}`;
+  const synthPrompt = `You are a chief investment officer synthesizing a debate. Respond ONLY with valid JSON, no markdown fences, no extra text:
+{"verdict":"Bullish or Bearish or Neutral","confidence":number 1-100,"timeHorizon":"short or medium or long","keyRisk":"max 8 words","keyOpportunity":"max 8 words","coreDisagreement":"max 10 words","summary":"3 sharp sentences synthesizing all arguments into a final investment position"}`;
 
   const synthMsg = `Subject: ${query}\n\n${dataContext}\n\nRound 1:\n${round1Summary}\n\nRound 2:\n${round2Summary}\n\nSynthesize.`;
   const synthRaw = await callClaude(synthPrompt, synthMsg);
