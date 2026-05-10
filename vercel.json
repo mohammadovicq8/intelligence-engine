@@ -3,6 +3,10 @@
     {
       "path": "/api/track-outcomes",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/check-watchlist",
+      "schedule": "0 7 * * 1-5"
     }
   ]
 }
