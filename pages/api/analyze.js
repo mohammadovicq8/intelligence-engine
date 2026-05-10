@@ -100,7 +100,6 @@ async function callClaude(systemPrompt, userMessage) {
 
 function buildDataContext(stockData) {
   if (!stockData?.found) return 'No live financial data available. Analyze based on general knowledge.';
-
   const marketData = `LIVE MARKET DATA:
 Company: ${stockData.name} (${stockData.symbol})
 Price: $${stockData.price} | Change: ${stockData.change}%
@@ -110,9 +109,7 @@ Revenue: ${stockData.revenue} | EPS: $${stockData.eps}
 
 RECENT NEWS:
 ${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('\n') : 'No recent news available'}`;
-
-  const edgarData = stockData.edgarContext ? `\n${stockData.edgarContext}` : '';
-
+  const edgarData = stockData.edgarContext ? '\n' + stockData.edgarContext : '';
   return marketData + edgarData;
 }
 
@@ -134,25 +131,24 @@ export default async function handler(req, res) {
   const dataContext = buildDataContext(stockData);
   const round1 = {};
 
-  for (const persona of personas) {
+  await Promise.all(personas.map(async (persona) => {
     const userMsg = `${dataContext}\n\nAnalyze: ${query}\n\nMake your opening case.`;
     round1[persona.id] = await callClaude(persona.role, userMsg);
-  }
+  }));
 
   const round1Summary = personas.map(p => `${p.name}: ${round1[p.id]}`).join('\n\n');
   const round2 = {};
 
-  for (const persona of personas) {
+  await Promise.all(personas.map(async (persona) => {
     const attackRole = persona.role + `\n\nROUND 2 RULES:
 - Maximum 3 sentences. Hard limit.
 - Start by naming exactly which analyst you are attacking and which specific claim
 - No headers, no labels, no "ROUND 2:" prefix
 - Pure prose only
 - Be surgical — one specific claim, destroyed with evidence`;
-
     const userMsg = `${dataContext}\n\nSubject: ${query}\n\nRound 1 arguments:\n${round1Summary}\n\nMake your Round 2 counter-argument.`;
     round2[persona.id] = await callClaude(attackRole, userMsg);
-  }
+  }));
 
   const round2Summary = personas.map(p => `${p.name}: ${round2[p.id]}`).join('\n\n');
 
@@ -179,7 +175,7 @@ export default async function handler(req, res) {
 
   await incrementAnalysisCount(userId);
 
-  await saveAnalysis(userId, {
+  const saved = await saveAnalysis(userId, {
     query,
     symbol: stockData?.symbol || null,
     company_name: stockData?.name || query,
@@ -200,6 +196,7 @@ export default async function handler(req, res) {
     round1,
     round2,
     synthesis,
-    stockData: stockData?.found ? stockData : null
+    stockData: stockData?.found ? stockData : null,
+    analysisId: saved?.id || null
   });
 }
