@@ -1,4 +1,36 @@
-import { supabaseAdmin, getUserProfile, incrementAnalysisCount, saveAnalysis, canRunAnalysis } from '../../lib/supabase'
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+const FREE_LIMIT = 3;
+
+async function getUserProfile(userId) {
+  const { data } = await supabaseAdmin.from('profiles').select('*').eq('id', userId).single();
+  return data;
+}
+
+async function canRunAnalysis(userId) {
+  const profile = await getUserProfile(userId);
+  if (!profile) return false;
+  if (profile.tier === 'pro' || profile.tier === 'elite') return true;
+  return profile.analysis_count < FREE_LIMIT;
+}
+
+async function incrementAnalysisCount(userId) {
+  const { data } = await supabaseAdmin.from('profiles').select('analysis_count').eq('id', userId).single();
+  await supabaseAdmin.from('profiles').update({ analysis_count: (data?.analysis_count || 0) + 1 }).eq('id', userId);
+}
+
+async function saveAnalysis(userId, analysisData) {
+  const { data } = await supabaseAdmin.from('analyses').insert([{ user_id: userId, ...analysisData }]).select().single();
+  return data;
+}
+
+const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+// ... rest of file unchanged
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-5';
