@@ -1,6 +1,6 @@
 {
   "name": "verdict",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,6 +11,8 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "yahoo-finance2": "2.11.3",
-    "react-markdown": "9.0.1"
+    "react-markdown": "9.0.1",
+    "@supabase/supabase-js": "2.39.0",
+    "@supabase/auth-helpers-nextjs": "0.8.7"
   }
 }
