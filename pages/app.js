@@ -284,12 +284,33 @@ export default function App() {
               </div>
               <p style={{ fontSize: 14, lineHeight: 1.8, color: '#333', margin: 0, padding: '14px 0 0', borderTop: '1px solid #eee' }}>{synthesis.summary}</p>
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #eee', display: 'flex', gap: 8 }}>
-                <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#534AB7', background: '#EEEDFE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
-                  🗄️ View in Vault →
-                </button>
-              </div>
-            </div>
-          )}
+  <button onClick={() => { setTab('vault'); loadVault(); }} style={{ fontSize: 12, color: '#534AB7', background: '#EEEDFE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}>
+    🗄️ View in Vault →
+  </button>
+  <button
+    onClick={() => {
+      const cardData = {
+        query,
+        symbol: stockData?.symbol,
+        companyName: stockData?.name || query,
+        price: stockData?.price,
+        change: stockData?.change,
+        news: stockData?.news,
+        verdict: synthesis.verdict,
+        confidence: synthesis.confidence,
+        timeHorizon: synthesis.timeHorizon,
+        keyRisk: synthesis.keyRisk,
+        keyOpportunity: synthesis.keyOpportunity,
+        coreDisagreement: synthesis.coreDisagreement,
+        summary: synthesis.summary
+      };
+      window.open(`/card?data=${encodeURIComponent(JSON.stringify(cardData))}`, '_blank');
+    }}
+    style={{ fontSize: 12, color: '#3B6D11', background: '#EAF3DE', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 500 }}
+  >
+    🎴 Share Card →
+  </button>
+</div>
 
           {!round1 && !loading && (
             <div style={{ textAlign: 'center', padding: '4rem 2rem', color: '#ccc' }}>
