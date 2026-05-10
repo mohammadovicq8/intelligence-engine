@@ -1,4 +1,4 @@
-import { supabaseAdmin, getUserProfile, incrementAnalysisCount, saveAnalysis, canRunAnalysis } from '../../lib/supabase';
+import { supabaseAdmin, getUserProfile, incrementAnalysisCount, saveAnalysis, canRunAnalysis } from '../../lib/supabase'
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-sonnet-4-5';
