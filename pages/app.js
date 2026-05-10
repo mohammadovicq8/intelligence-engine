@@ -180,7 +180,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid ' + border }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <h1 onClick={() => router.push('/')} style={{ fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.5px', cursor: 'pointer', color: clrText }}>Verdict</h1>
-            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 2, background: surface2, borderRadius: 10, padding: 3, overflowX: 'auto', maxWidth: '600px' }}>
               {tabs.map(t => (
                 <button key={t.id} onClick={() => handleTabClick(t.id)} style={{ padding: '5px 12px', background: tab === t.id && !t.route ? (dm ? '#fff' : '#1a1a1a') : 'transparent', color: tab === t.id && !t.route ? (dm ? '#000' : '#fff') : textMuted, border: 'none', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
                   {t.label}
