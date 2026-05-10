@@ -113,8 +113,6 @@ ${stockData.news?.length ? stockData.news.map((n, i) => `${i + 1}. ${n}`).join('
   return marketData + edgarData;
 }
 
-export const config = { api: { responseLimit: false } };
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -129,81 +127,60 @@ export default async function handler(req, res) {
     });
   }
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  const dataContext = buildDataContext(stockData);
+  const round1 = {};
+  const round2 = {};
 
-  function send(event, data) {
-    res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n');
-  }
+  await Promise.all(personas.map(async (persona) => {
+    const userMsg = dataContext + '\n\nAnalyze: ' + query + '\n\nMake your opening case.';
+    round1[persona.id] = await callClaude(persona.role, userMsg);
+  }));
 
+  const round1Summary = personas.map(p => p.name + ': ' + round1[p.id]).join('\n\n');
+
+  await Promise.all(personas.map(async (persona) => {
+    const attackRole = persona.role + '\n\nROUND 2 RULES:\n- Maximum 3 sentences. Hard limit.\n- Start by naming exactly which analyst you are attacking and which specific claim.\n- No headers, no labels.\n- Pure prose only.\n- Be surgical.';
+    const userMsg = dataContext + '\n\nSubject: ' + query + '\n\nRound 1 arguments:\n' + round1Summary + '\n\nMake your Round 2 counter-argument.';
+    round2[persona.id] = await callClaude(attackRole, userMsg);
+  }));
+
+  const round2Summary = personas.map(p => p.name + ': ' + round2[p.id]).join('\n\n');
+
+  const synthPrompt = 'You are a chief investment officer synthesizing a debate. Respond ONLY with valid JSON, no markdown fences, no extra text:\n{"verdict":"Bullish or Bearish or Neutral","confidence":number 1-100,"timeHorizon":"short or medium or long","keyRisk":"max 8 words","keyOpportunity":"max 8 words","coreDisagreement":"max 10 words","summary":"3 sharp sentences synthesizing all arguments into a final investment position"}';
+  const synthMsg = 'Subject: ' + query + '\n\n' + dataContext + '\n\nRound 1:\n' + round1Summary + '\n\nRound 2:\n' + round2Summary + '\n\nSynthesize.';
+  const synthRaw = await callClaude(synthPrompt, synthMsg);
+
+  let synthesis;
   try {
-    const dataContext = buildDataContext(stockData);
-    const round1 = {};
-    const round2 = {};
-
-    send('stage', { stage: 'Round 1 — Opening arguments', phase: 1 });
-
-    await Promise.all(personas.map(async (persona) => {
-      send('persona_start', { id: persona.id, name: persona.name, round: 1 });
-      const userMsg = dataContext + '\n\nAnalyze: ' + query + '\n\nMake your opening case.';
-      const text = await callClaude(persona.role, userMsg);
-      round1[persona.id] = text;
-      send('persona_done', { id: persona.id, text, round: 1 });
-    }));
-
-    send('stage', { stage: 'Round 2 — Direct attacks', phase: 2 });
-
-    const round1Summary = personas.map(p => p.name + ': ' + round1[p.id]).join('\n\n');
-
-    await Promise.all(personas.map(async (persona) => {
-      send('persona_start', { id: persona.id, name: persona.name, round: 2 });
-      const attackRole = persona.role + '\n\nROUND 2 RULES:\n- Maximum 3 sentences. Hard limit.\n- Start by naming exactly which analyst you are attacking and which specific claim.\n- No headers, no labels.\n- Pure prose only.\n- Be surgical.';
-      const userMsg = dataContext + '\n\nSubject: ' + query + '\n\nRound 1 arguments:\n' + round1Summary + '\n\nMake your Round 2 counter-argument.';
-      const text = await callClaude(attackRole, userMsg);
-      round2[persona.id] = text;
-      send('persona_done', { id: persona.id, text, round: 2 });
-    }));
-
-    send('stage', { stage: 'Synthesizing final verdict', phase: 3 });
-
-    const round2Summary = personas.map(p => p.name + ': ' + round2[p.id]).join('\n\n');
-    const synthPrompt = 'You are a chief investment officer synthesizing a debate. Respond ONLY with valid JSON, no markdown fences, no extra text:\n{"verdict":"Bullish or Bearish or Neutral","confidence":number 1-100,"timeHorizon":"short or medium or long","keyRisk":"max 8 words","keyOpportunity":"max 8 words","coreDisagreement":"max 10 words","summary":"3 sharp sentences synthesizing all arguments into a final investment position"}';
-    const synthMsg = 'Subject: ' + query + '\n\n' + dataContext + '\n\nRound 1:\n' + round1Summary + '\n\nRound 2:\n' + round2Summary + '\n\nSynthesize.';
-    const synthRaw = await callClaude(synthPrompt, synthMsg);
-
-    let synthesis;
-    try {
-      synthesis = JSON.parse(synthRaw.replace(/```json|```/g, '').trim());
-    } catch {
-      synthesis = { verdict: 'Neutral', confidence: 50, timeHorizon: 'medium', keyRisk: 'See summary', keyOpportunity: 'See summary', coreDisagreement: 'Unable to determine', summary: synthRaw };
-    }
-
-    await incrementAnalysisCount(userId);
-
-    const saved = await saveAnalysis(userId, {
-      query,
-      symbol: stockData?.symbol || null,
-      company_name: stockData?.name || query,
-      price_at_analysis: stockData?.price ? parseFloat(stockData.price) : null,
-      verdict: synthesis.verdict,
-      confidence: synthesis.confidence,
-      time_horizon: synthesis.timeHorizon,
-      key_risk: synthesis.keyRisk,
-      key_opportunity: synthesis.keyOpportunity,
-      core_disagreement: synthesis.coreDisagreement,
-      summary: synthesis.summary,
-      round1,
-      round2,
-      stock_data: stockData || null
-    });
-
-    send('synthesis', { synthesis, analysisId: saved?.id || null });
-    send('done', { success: true });
-
-  } catch (e) {
-    send('error', { message: 'Analysis failed. Please try again.' });
+    synthesis = JSON.parse(synthRaw.replace(/```json|```/g, '').trim());
+  } catch {
+    synthesis = { verdict: 'Neutral', confidence: 50, timeHorizon: 'medium', keyRisk: 'See summary', keyOpportunity: 'See summary', coreDisagreement: 'Unable to determine', summary: synthRaw };
   }
 
-  res.end();
+  await incrementAnalysisCount(userId);
+
+  const saved = await saveAnalysis(userId, {
+    query,
+    symbol: stockData?.symbol || null,
+    company_name: stockData?.name || query,
+    price_at_analysis: stockData?.price ? parseFloat(stockData.price) : null,
+    verdict: synthesis.verdict,
+    confidence: synthesis.confidence,
+    time_horizon: synthesis.timeHorizon,
+    key_risk: synthesis.keyRisk,
+    key_opportunity: synthesis.keyOpportunity,
+    core_disagreement: synthesis.coreDisagreement,
+    summary: synthesis.summary,
+    round1,
+    round2,
+    stock_data: stockData || null
+  });
+
+  return res.status(200).json({
+    round1,
+    round2,
+    synthesis,
+    stockData: stockData?.found ? stockData : null,
+    analysisId: saved?.id || null
+  });
 }
